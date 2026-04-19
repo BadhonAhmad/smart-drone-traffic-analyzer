@@ -8,23 +8,22 @@ from pathlib import Path
 from fastapi import APIRouter, BackgroundTasks, HTTPException, UploadFile, File, Request
 from fastapi.responses import FileResponse, StreamingResponse
 
-from services.pipeline import run_pipeline, UPLOAD_DIR
+from config import (
+    ALLOWED_CONTENT_TYPES,
+    ALLOWED_EXTENSIONS,
+    MAX_UPLOAD_SIZE,
+    MP4_MAGIC,
+    UPLOAD_DIR,
+)
+from services.pipeline import run_pipeline
 from utils.job_store import create_job, get_job
 
 router = APIRouter(prefix="/api")
 
-ALLOWED_CONTENT_TYPES = {"video/mp4"}
-ALLOWED_EXTENSIONS = {".mp4"}
-# MP4 files have an 'ftyp' box starting at byte offset 4.
-MP4_MAGIC = b"ftyp"
-MAX_UPLOAD_SIZE = 500 * 1024 * 1024  # 500 MB
-
 
 def _validate_mp4_magic(content: bytes) -> bool:
     """Check whether the first 12 bytes contain the MP4 'ftyp' signature."""
-    if len(content) < 12:
-        return False
-    return content[4:8] == MP4_MAGIC
+    return len(content) >= 12 and content[4:8] == MP4_MAGIC
 
 
 @router.post("/upload")
@@ -32,40 +31,22 @@ async def upload_video(
     background_tasks: BackgroundTasks,
     file: UploadFile = File(...),
 ) -> dict[str, str]:
-    """Accept an .mp4 upload, validate it, save to disk, and start processing.
-
-    Validates both the file extension and the MP4 magic bytes (``ftyp`` at
-    offset 4).  Returns ``{ "job_id": "<uuid>" }`` immediately while
-    processing continues in the background.
-    """
-    # Extension check
+    """Accept an .mp4 upload, validate it, save, and start processing."""
     ext = Path(file.filename or "").suffix.lower()
     if ext not in ALLOWED_EXTENSIONS:
-        raise HTTPException(
-            status_code=400,
-            detail="Invalid file. Please upload a valid .mp4 video.",
-        )
+        raise HTTPException(status_code=400, detail="Invalid file. Please upload a valid .mp4 video.")
 
     content = await file.read()
 
-    # Content-type check
     if file.content_type not in ALLOWED_CONTENT_TYPES:
-        raise HTTPException(
-            status_code=400,
-            detail="Invalid file. Please upload a valid .mp4 video.",
-        )
+        raise HTTPException(status_code=400, detail="Invalid file. Please upload a valid .mp4 video.")
 
-    # Magic-bytes check
     if not _validate_mp4_magic(content):
-        raise HTTPException(
-            status_code=400,
-            detail="Invalid file. Please upload a valid .mp4 video.",
-        )
+        raise HTTPException(status_code=400, detail="Invalid file. Please upload a valid .mp4 video.")
 
     job_id = str(uuid.uuid4())
     dest = UPLOAD_DIR / f"{job_id}.mp4"
     dest.parent.mkdir(parents=True, exist_ok=True)
-
     dest.write_bytes(content)
 
     create_job(job_id, str(dest))
@@ -136,12 +117,10 @@ async def download_video(job_id: str, request: Request) -> StreamingResponse | F
     range_header = request.headers.get("range")
 
     if range_header:
-        # Parse "bytes=start-end"
         range_val = range_header.strip().split("=")[-1]
         parts = range_val.split("-")
         start = int(parts[0]) if parts[0] else 0
-        end = int(parts[1]) if parts[1] else file_size - 1
-        end = min(end, file_size - 1)
+        end = min(int(parts[1]) if parts[1] else file_size - 1, file_size - 1)
         content_length = end - start + 1
 
         def _iter():
@@ -167,7 +146,6 @@ async def download_video(job_id: str, request: Request) -> StreamingResponse | F
             },
         )
 
-    # No range header — serve full file
     return FileResponse(
         video_path,
         media_type="video/mp4",

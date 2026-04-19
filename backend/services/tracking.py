@@ -1,27 +1,10 @@
-"""Vehicle tracking state, class mapping, and counting logic."""
+"""Vehicle tracking state — class mapping and counting logic."""
 
 from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-# COCO class IDs relevant to traffic analysis
-COCO_CLASSES = {2: "car", 3: "motorcycle", 5: "bus", 7: "truck"}
-
-# Bounding-box colour per class (BGR for OpenCV)
-CLASS_COLORS: dict[str, tuple[int, int, int]] = {
-    "car": (255, 100, 50),        # blue
-    "truck": (50, 50, 255),       # red
-    "bus": (50, 255, 255),        # yellow
-    "motorcycle": (50, 255, 50),  # green
-}
-
-# Counting line drawn at 85 % height for visualization.
-LINE_POSITION = 0.85
-
-# Minimum processed frames a track must be seen before it is force-counted.
-# At FRAME_SKIP=4 this equals ~0.5 seconds — enough to filter flickers
-# but short enough to catch every real vehicle.
-MIN_TRACK_FRAMES = 2
+from config import MIN_TRACK_FRAMES
 
 
 @dataclass
@@ -35,9 +18,6 @@ class TrackerState:
     prev_center_y: dict[int, float] = field(default_factory=dict)
     detections_log: list[dict] = field(default_factory=list)
 
-    # ------------------------------------------------------------------
-    # Class voting
-    # ------------------------------------------------------------------
     def update_class(self, tid: int, cls_name: str) -> str:
         """Record a class observation and return the best-voted class."""
         if tid not in self.class_votes:
@@ -47,34 +27,26 @@ class TrackerState:
         self.class_map[tid] = best
         return best
 
-    # ------------------------------------------------------------------
-    # Counting decision
-    # ------------------------------------------------------------------
     def should_count(self, tid: int, cy: float, line_y: float) -> bool:
         """Decide whether to count this vehicle this frame.
 
-        Two triggers (only evaluated if *tid* is not yet counted):
-        1. **Line crossing** — center-Y crossed the line between last frame and now.
-        2. **Persistence** — tracked for MIN_TRACK_FRAMES processed frames.
+        Two triggers (only if *tid* is not yet counted):
+        1. Line crossing — center-Y crossed the line since last frame.
+        2. Persistence — tracked for MIN_TRACK_FRAMES processed frames.
         """
         if tid in self.seen_ids:
             return False
 
-        # Line crossing (early trigger)
         if tid in self.prev_center_y:
             prev = self.prev_center_y[tid]
             if (prev < line_y <= cy) or (prev > line_y >= cy):
                 return True
 
-        # Persistence: seen enough frames → definitely a real vehicle
         if self.frame_count.get(tid, 0) >= MIN_TRACK_FRAMES:
             return True
 
         return False
 
-    # ------------------------------------------------------------------
-    # Record a counted vehicle
-    # ------------------------------------------------------------------
     def record(
         self,
         tid: int,
@@ -101,9 +73,6 @@ class TrackerState:
         self.detections_log.append(entry)
         return entry
 
-    # ------------------------------------------------------------------
-    # Helpers
-    # ------------------------------------------------------------------
     def bump_frame(self, tid: int) -> None:
         self.frame_count[tid] = self.frame_count.get(tid, 0) + 1
 

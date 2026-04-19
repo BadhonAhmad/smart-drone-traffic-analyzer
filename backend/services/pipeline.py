@@ -4,38 +4,33 @@ from __future__ import annotations
 
 import time
 import traceback
-from pathlib import Path
 
 import cv2
 from ultralytics import YOLO
 
+from config import (
+    CLASS_COLORS,
+    COCO_CLASSES,
+    FRAME_SKIP,
+    INFERENCE_WIDTH,
+    LINE_POSITION,
+    MODEL_NAME,
+    PROGRESS_INTERVAL,
+    OUTPUT_DIR,
+    TRACKER,
+    UPLOAD_DIR,
+    VIDEO_CODEC,
+)
 from services.annotator import draw_box, draw_counting_line, draw_hud
 from services.report import generate_report
 from services.scanner import final_scan
-from services.tracking import (
-    COCO_CLASSES,
-    CLASS_COLORS,
-    LINE_POSITION,
-    TrackerState,
-)
+from services.tracking import TrackerState
 from services.utils import resize
 from utils.job_store import update_job
 
-# ---------------------------------------------------------------------------
-# Directories (absolute paths so CWD doesn't matter)
-# ---------------------------------------------------------------------------
-_BASE = Path(__file__).resolve().parent.parent
-UPLOAD_DIR = _BASE / "tmp" / "uploads"
-OUTPUT_DIR = _BASE / "tmp" / "annotated"
-UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
-OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
-
-# ---------------------------------------------------------------------------
-# Tuning constants
-# ---------------------------------------------------------------------------
-FRAME_SKIP = 3          # process every 3rd frame
-INFERENCE_WIDTH = 640    # higher res = better detection of small/distant vehicles
-PROGRESS_INTERVAL = 30  # update job store every N processed frames
+# Ensure directories exist on import
+for _d in (UPLOAD_DIR, OUTPUT_DIR):
+    _d.mkdir(parents=True, exist_ok=True)
 
 
 def run_pipeline(job_id: str, video_path: str) -> None:
@@ -44,7 +39,6 @@ def run_pipeline(job_id: str, video_path: str) -> None:
     t_start = time.perf_counter()
 
     try:
-        # 1. Open video & gather metadata
         cap = cv2.VideoCapture(video_path)
         if not cap.isOpened():
             update_job(job_id, status="error", error_message="Cannot open video file")
@@ -56,18 +50,12 @@ def run_pipeline(job_id: str, video_path: str) -> None:
         orig_h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
         update_job(job_id, total_frames=total_frames)
 
-        # 2. VideoWriter for annotated output (H.264 for browser playback)
         annotated_path = str(OUTPUT_DIR / f"{job_id}_annotated.mp4")
-        fourcc = cv2.VideoWriter_fourcc(*"avc1")
+        fourcc = cv2.VideoWriter_fourcc(*VIDEO_CODEC)
         writer = cv2.VideoWriter(annotated_path, fourcc, orig_fps, (orig_w, orig_h))
 
-        # 3. Load model
-        model = YOLO("yolov8n.pt")
-
-        # 4. Tracking state
+        model = YOLO(MODEL_NAME)
         state = TrackerState()
-
-        # 5. Frame loop
         frame_idx = 0
         processed = 0
 
@@ -85,16 +73,14 @@ def run_pipeline(job_id: str, video_path: str) -> None:
                 line_y = int(inf_h * LINE_POSITION)
                 sx, sy = orig_w / inf_w, orig_h / inf_h
 
-                # Run detection + tracking (BoT-SORT: ReID + motion compensation)
                 results = model.track(
                     inf_frame,
-                    tracker="botsort.yaml",
+                    tracker=TRACKER,
                     persist=True,
                     classes=list(COCO_CLASSES.keys()),
                     verbose=False,
                 )
 
-                # Draw counting line
                 draw_counting_line(annotated, int(line_y * sy), orig_w)
 
                 if results and results[0].boxes is not None:
@@ -120,7 +106,6 @@ def run_pipeline(job_id: str, video_path: str) -> None:
 
                         state.save_center(tid, cy)
 
-                        # Draw annotation
                         best_cls = state.class_map.get(tid, cls_name)
                         color = CLASS_COLORS.get(best_cls, (200, 200, 200))
                         draw_box(
@@ -142,13 +127,11 @@ def run_pipeline(job_id: str, video_path: str) -> None:
         cap.release()
         writer.release()
 
-        # 6. Final scan — catch late-entering vehicles
         final_scan(
             model, video_path, total_frames,
-            orig_w, orig_h, orig_fps, INFERENCE_WIDTH, state,
+            orig_w, orig_h, orig_fps, state,
         )
 
-        # 7. Assemble results
         elapsed = round(time.perf_counter() - t_start, 2)
         result_dict = {
             "total_vehicles": state.count,
@@ -163,7 +146,6 @@ def run_pipeline(job_id: str, video_path: str) -> None:
             annotated_video_path=annotated_path,
         )
 
-        # 8. Generate report
         report_path = generate_report(job_id, result_dict, state.detections_log)
         if report_path:
             update_job(job_id, report_path=report_path)
