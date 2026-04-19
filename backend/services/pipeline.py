@@ -33,8 +33,8 @@ OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 # ---------------------------------------------------------------------------
 # Tuning constants
 # ---------------------------------------------------------------------------
-FRAME_SKIP = 4          # process every 4th frame for speed
-INFERENCE_WIDTH = 416    # smaller input = faster inference
+FRAME_SKIP = 3          # process every 3rd frame
+INFERENCE_WIDTH = 640    # higher res = better detection of small/distant vehicles
 PROGRESS_INTERVAL = 30  # update job store every N processed frames
 
 

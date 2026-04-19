@@ -21,7 +21,7 @@ LINE_POSITION = 0.85
 # Minimum processed frames a track must be seen before it is force-counted.
 # At FRAME_SKIP=4 this equals ~0.5 seconds — enough to filter flickers
 # but short enough to catch every real vehicle.
-MIN_TRACK_FRAMES = 3
+MIN_TRACK_FRAMES = 2
 
 
 @dataclass
