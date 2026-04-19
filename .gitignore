@@ -1,0 +1,36 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+
+# YOLO model weights (auto-downloaded on first run)
+*.pt
+
+# Uploaded / generated / processed files
+backend/tmp/
+
+# Dependencies
+node_modules/
+
+# Next.js build cache
+frontend/.next/
+frontend/out/
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Env files
+.env
+.env.local
+
+# Logs
+*.log
+npm-debug.log*
