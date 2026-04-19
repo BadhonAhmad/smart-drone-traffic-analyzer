@@ -85,10 +85,10 @@ def run_pipeline(job_id: str, video_path: str) -> None:
                 line_y = int(inf_h * LINE_POSITION)
                 sx, sy = orig_w / inf_w, orig_h / inf_h
 
-                # Run detection + tracking
+                # Run detection + tracking (BoT-SORT: ReID + motion compensation)
                 results = model.track(
                     inf_frame,
-                    tracker="bytetrack.yaml",
+                    tracker="botsort.yaml",
                     persist=True,
                     classes=list(COCO_CLASSES.keys()),
                     verbose=False,
