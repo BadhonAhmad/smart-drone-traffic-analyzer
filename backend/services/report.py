@@ -15,8 +15,8 @@ REPORT_DIR.mkdir(parents=True, exist_ok=True)
 
 # Style presets
 ACCENT_FILL = PatternFill(start_color="4f8ef7", end_color="4f8ef7", fill_type="solid")
-ALT_ROW_A = PatternFill(start_color="1e2130", end_color="1e2130", fill_type="solid")
-ALT_ROW_B = PatternFill(start_color="2a2d3e", end_color="2a2d3e", fill_type="solid")
+ALT_ROW_A = PatternFill(start_color="FFFFFF", end_color="FFFFFF", fill_type="solid")
+ALT_ROW_B = PatternFill(start_color="F2F2F2", end_color="F2F2F2", fill_type="solid")
 BOLD_FONT = Font(bold=True, color="000000")
 NORMAL_FONT = Font(color="000000")
 HEADER_FONT = Font(bold=True, color="FFFFFF", size=12)
@@ -58,9 +58,9 @@ def generate_report(
 ) -> str:
     """Generate a styled 3-sheet Excel report for a completed job.
 
-    Sheet 1 "Summary"        — high-level metrics with bold labels.
-    Sheet 2 "Vehicle Breakdown" — class / count / percentage.
-    Sheet 3 "Detection Log"  — every counting event with alternating row fill.
+    Sheet 1 "Detection Log"    — every counting event (shown first).
+    Sheet 2 "Summary"          — high-level metrics with bold labels.
+    Sheet 3 "Vehicle Breakdown" — class / count / percentage.
 
     Returns the path to the saved ``.xlsx`` file.
     """
@@ -70,61 +70,16 @@ def generate_report(
     total = result.get("total_vehicles", 0)
 
     # ==================================================================
-    # Sheet 1 — Summary
+    # Sheet 1 — Detection Log (active sheet when file opens)
     # ==================================================================
     ws1 = wb.active
-    ws1.title = "Summary"
-
-    rows = [
-        ("Field", "Value"),
-        ("Job ID", result.get("job_id", job_id)),
-        ("Total Unique Vehicles", total),
-        ("Processing Duration (sec)", result.get("processing_duration_sec")),
-        ("Car Count", breakdown.get("car", 0)),
-        ("Truck Count", breakdown.get("truck", 0)),
-        ("Bus Count", breakdown.get("bus", 0)),
-        ("Motorcycle Count", breakdown.get("motorcycle", 0)),
-        ("Report Generated At", datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")),
-    ]
-    for row_data in rows:
-        ws1.append(list(row_data))
-
-    _style_header(ws1, 1, 2)
-    _bold_labels(ws1, 2, len(rows))
-
-    # White font on data cells
-    for r in range(2, len(rows) + 1):
-        ws1.cell(row=r, column=2).font = NORMAL_FONT
-
-    _auto_fit(ws1)
-
-    # ==================================================================
-    # Sheet 2 — Vehicle Breakdown
-    # ==================================================================
-    ws2 = wb.create_sheet("Vehicle Breakdown")
-    ws2.append(["Class", "Count", "% of Total"])
-    for cls_name, count in breakdown.items():
-        pct = f"{(count / total * 100):.1f}%" if total else "0.0%"
-        ws2.append([cls_name.capitalize(), count, pct])
-
-    _style_header(ws2, 1, 3)
-    for r in range(2, ws2.max_row + 1):
-        for c in range(1, 4):
-            ws2.cell(row=r, column=c).font = NORMAL_FONT
-            ws2.cell(row=r, column=c).alignment = CENTER
-
-    _auto_fit(ws2)
-
-    # ==================================================================
-    # Sheet 3 — Detection Log
-    # ==================================================================
-    ws3 = wb.create_sheet("Detection Log")
+    ws1.title = "Detection Log"
     headers = [
         "Track ID", "Class", "Confidence", "Frame Number",
         "Timestamp (sec)", "X1", "Y1", "X2", "Y2",
     ]
-    ws3.append(headers)
-    _style_header(ws3, 1, len(headers))
+    ws1.append(headers)
+    _style_header(ws1, 1, len(headers))
 
     for idx, det in enumerate(detections_log):
         row = [
@@ -138,14 +93,58 @@ def generate_report(
             det.get("x2"),
             det.get("y2"),
         ]
-        ws3.append(row)
-        r = ws3.max_row
+        ws1.append(row)
+        r = ws1.max_row
         fill = ALT_ROW_A if idx % 2 == 0 else ALT_ROW_B
         for c in range(1, len(headers) + 1):
-            cell = ws3.cell(row=r, column=c)
+            cell = ws1.cell(row=r, column=c)
             cell.fill = fill
             cell.font = NORMAL_FONT
             cell.alignment = CENTER
+
+    _auto_fit(ws1)
+
+    # ==================================================================
+    # Sheet 2 — Summary
+    # ==================================================================
+    ws2 = wb.create_sheet("Summary")
+
+    rows = [
+        ("Field", "Value"),
+        ("Job ID", result.get("job_id", job_id)),
+        ("Total Unique Vehicles", total),
+        ("Processing Duration (sec)", result.get("processing_duration_sec")),
+        ("Car Count", breakdown.get("car", 0)),
+        ("Truck Count", breakdown.get("truck", 0)),
+        ("Bus Count", breakdown.get("bus", 0)),
+        ("Motorcycle Count", breakdown.get("motorcycle", 0)),
+        ("Report Generated At", datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")),
+    ]
+    for row_data in rows:
+        ws2.append(list(row_data))
+
+    _style_header(ws2, 1, 2)
+    _bold_labels(ws2, 2, len(rows))
+
+    for r in range(2, len(rows) + 1):
+        ws2.cell(row=r, column=2).font = NORMAL_FONT
+
+    _auto_fit(ws2)
+
+    # ==================================================================
+    # Sheet 3 — Vehicle Breakdown
+    # ==================================================================
+    ws3 = wb.create_sheet("Vehicle Breakdown")
+    ws3.append(["Class", "Count", "% of Total"])
+    for cls_name, count in breakdown.items():
+        pct = f"{(count / total * 100):.1f}%" if total else "0.0%"
+        ws3.append([cls_name.capitalize(), count, pct])
+
+    _style_header(ws3, 1, 3)
+    for r in range(2, ws3.max_row + 1):
+        for c in range(1, 4):
+            ws3.cell(row=r, column=c).font = NORMAL_FONT
+            ws3.cell(row=r, column=c).alignment = CENTER
 
     _auto_fit(ws3)
 
