@@ -1,27 +1,14 @@
 """Smart Drone Traffic Analyzer — FastAPI application entry point."""
 
-from contextlib import asynccontextmanager
-
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from routers import upload, ws
-from utils.job_store import recover_stuck_jobs
-
-
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    """Recover any jobs that were processing when the server last stopped."""
-    recovered = recover_stuck_jobs()
-    if recovered:
-        print(f"[startup] Recovered {recovered} stuck job(s)")
-    yield
 
 
 app = FastAPI(
     title="Smart Drone Traffic Analyzer",
     version="0.1.0",
-    lifespan=lifespan,
 )
 
 app.add_middleware(

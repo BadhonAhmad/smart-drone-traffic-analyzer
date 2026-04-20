@@ -1,12 +1,10 @@
-"""Thread-safe in-memory job store with stuck-job recovery."""
+"""Thread-safe in-memory job store."""
 
 from __future__ import annotations
 
 import threading
 import time
 from typing import Any
-
-from config import STUCK_JOB_TIMEOUT
 
 _jobs: dict[str, dict[str, Any]] = {}
 _lock = threading.Lock()
@@ -40,26 +38,3 @@ def update_job(job_id: str, **fields: Any) -> None:
     with _lock:
         if job_id in _jobs:
             _jobs[job_id].update(fields)
-
-
-def recover_stuck_jobs() -> int:
-    """Mark jobs stuck in "processing" beyond STUCK_JOB_TIMEOUT as errors.
-
-    Called once on server startup.  Returns the number of recovered jobs.
-    This handles the case where the server crashes mid-processing — on
-    restart those jobs would otherwise remain "processing" forever.
-    """
-    now = time.time()
-    recovered = 0
-    with _lock:
-        for job_id, job in _jobs.items():
-            if job["status"] == "processing":
-                age = now - job.get("created_at", now)
-                if age > STUCK_JOB_TIMEOUT:
-                    job["status"] = "error"
-                    job["error_message"] = (
-                        f"Job timed out after {STUCK_JOB_TIMEOUT // 60} minutes. "
-                        "The server may have restarted during processing."
-                    )
-                    recovered += 1
-    return recovered

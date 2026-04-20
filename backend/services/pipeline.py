@@ -13,7 +13,6 @@ from config import (
     COCO_CLASSES,
     FRAME_SKIP,
     INFERENCE_WIDTH,
-    LINE_POSITION,
     MODEL_NAME,
     PROGRESS_INTERVAL,
     OUTPUT_DIR,
@@ -21,9 +20,8 @@ from config import (
     UPLOAD_DIR,
     VIDEO_CODEC,
 )
-from services.annotator import draw_box, draw_counting_line, draw_hud
+from services.annotator import draw_box, draw_hud
 from services.report import generate_report
-from services.scanner import final_scan
 from services.tracking import TrackerState
 from services.utils import resize
 from utils.job_store import update_job
@@ -54,9 +52,7 @@ def _process_frame_builtin(
     frame_idx: int,
     orig_fps: float,
     sx: float, sy: float,
-    line_y: float,
     annotated,
-    orig_w: int,
 ) -> None:
     """Run detection + built-in tracker (ByteTrack / BoT-SORT) on one frame."""
     results = model.track(
@@ -79,15 +75,13 @@ def _process_frame_builtin(
         cls_name = COCO_CLASSES.get(cls_id, "unknown")
         conf = float(box.conf.item())
         x1, y1, x2, y2 = box.xyxy[0].tolist()
-        cy = (y1 + y2) / 2.0
 
         state.update_class(tid, cls_name)
         state.bump_frame(tid)
 
-        if state.should_count(tid, cy, line_y, x1, y1, x2, y2):
+        if state.should_count(tid, x1, y1, x2, y2):
             state.record(tid, conf, frame_idx, orig_fps, x1, y1, x2, y2, sx, sy)
 
-        state.save_center(tid, cy)
         state.update_position(tid, x1, y1, x2, y2)
 
         best_cls = state.class_map.get(tid, cls_name)
@@ -105,7 +99,6 @@ def _process_frame_deepsort(
     frame_idx: int,
     orig_fps: float,
     sx: float, sy: float,
-    line_y: float,
     annotated,
 ) -> None:
     """Run detection (YOLO) + DeepSORT tracking on one frame."""
@@ -129,7 +122,6 @@ def _process_frame_deepsort(
         tid = track.track_id
         ltrb = track.to_ltrb()
         x1, y1, x2, y2 = ltrb
-        cy = (y1 + y2) / 2.0
 
         cls_name = COCO_CLASSES.get(track.get_det_class(), "unknown")
         conf = track.get_det_conf() or 0.0
@@ -137,10 +129,9 @@ def _process_frame_deepsort(
         state.update_class(tid, cls_name)
         state.bump_frame(tid)
 
-        if state.should_count(tid, cy, line_y, x1, y1, x2, y2):
+        if state.should_count(tid, x1, y1, x2, y2):
             state.record(tid, conf, frame_idx, orig_fps, x1, y1, x2, y2, sx, sy)
 
-        state.save_center(tid, cy)
         state.update_position(tid, x1, y1, x2, y2)
 
         best_cls = state.class_map.get(tid, cls_name)
@@ -186,21 +177,17 @@ def run_pipeline(job_id: str, video_path: str) -> None:
             if frame_idx % FRAME_SKIP == 0:
                 processed += 1
                 inf_frame = resize(frame, INFERENCE_WIDTH)
-                inf_h, inf_w = inf_frame.shape[:2]
-                line_y = int(inf_h * LINE_POSITION)
-                sx, sy = orig_w / inf_w, orig_h / inf_h
-
-                draw_counting_line(annotated, int(line_y * sy), orig_w)
+                sx, sy = orig_w / inf_frame.shape[1], orig_h / inf_frame.shape[0]
 
                 if _USE_DEEPSORT:
                     _process_frame_deepsort(
                         model, ds_tracker, inf_frame, frame, state,
-                        frame_idx, orig_fps, sx, sy, line_y, annotated,
+                        frame_idx, orig_fps, sx, sy, annotated,
                     )
                 else:
                     _process_frame_builtin(
                         model, inf_frame, state,
-                        frame_idx, orig_fps, sx, sy, line_y, annotated, orig_w,
+                        frame_idx, orig_fps, sx, sy, annotated,
                     )
 
                 draw_hud(annotated, state.count, frame_idx)
@@ -214,11 +201,6 @@ def run_pipeline(job_id: str, video_path: str) -> None:
 
         cap.release()
         writer.release()
-
-        final_scan(
-            model, video_path, total_frames,
-            orig_w, orig_h, orig_fps, state,
-        )
 
         elapsed = round(time.perf_counter() - t_start, 2)
         result_dict = {

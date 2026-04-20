@@ -17,8 +17,7 @@ Smart Drone Traffic Analyzer is a full-stack web application that processes dron
        |        |
        |        +-- YOLOv8n (object detection)
        |        +-- BoT-SORT (multi-object tracking with ReID)
-       |        +-- Persistence counter (unique vehicle counting)
-       |        +-- Final scan (end-of-video safety net)
+       |        +-- Persistence counter + spatial dedup
        |        +-- OpenCV (frame annotation + video export)
        |
        +-- report.py -> Excel (.xlsx) generation
@@ -30,7 +29,7 @@ Smart Drone Traffic Analyzer is a full-stack web application that processes dron
 |-------------|---------------------|------------------------------------------------------|
 | Backend     | Python + FastAPI    | Async-native, auto OpenAPI docs, fast development    |
 | CV          | Ultralytics YOLOv8n | Lightweight detection with strong COCO pre-training  |
-| Tracking    | BoT-SORT            | ReID + motion compensation, handles drone camera shake and occlusions better than ByteTrack/DeepSORT |
+| Tracking    | BoT-SORT            | ReID + motion compensation, handles drone camera shake and occlusions |
 | Video I/O   | OpenCV              | Frame-level read/write, drawing, resize              |
 | Reports     | openpyxl            | Styled multi-sheet Excel generation                  |
 | Frontend    | Next.js 16 (App Router) | Server-proxyable rewrites, React components       |
@@ -87,15 +86,13 @@ Open http://localhost:3000
 
 1. **Upload** — The user drops an `.mp4` file. The backend validates the extension and MP4 magic bytes (`ftyp` at offset 4), saves the file, creates a job, and kicks off a background task.
 
-2. **Detection** — Every 3rd frame is resized to 640 px width and passed through YOLOv8n with BoT-SORT tracking (`classes=[2,3,5,7]` filtering to car, motorcycle, bus, truck).
+2. **Detection** — Every 2nd frame is resized to 640 px width and passed through YOLOv8n with BoT-SORT tracking (`classes=[2,3,5,7]` filtering to car, motorcycle, bus, truck).
 
-3. **Counting** — A vehicle is counted once it has been tracked for at least 2 processed frames (persistence-based counting). A virtual line at 85% frame height acts as a visual reference. This avoids missing vehicles that never cross an arbitrary line.
+3. **Counting** — A vehicle is counted once its track ID has persisted for at least 2 processed frames. Before counting, the bounding box is checked against all already-counted vehicles using IoU overlap — if it matches an existing vehicle, it is skipped. This prevents the same physical vehicle from being counted multiple times when the tracker assigns it a new ID.
 
 4. **Annotation** — Every processed frame gets colored bounding boxes (blue=car, red=truck, yellow=bus, green=motorcycle), ID labels, and a HUD overlay showing the running count.
 
-5. **Final scan** — After the frame loop ends, the last ~1 second of video is re-scanned. Any vehicle not already counted is detected and added (with IoU dedup to prevent double-counting).
-
-6. **Output** — The annotated video is written via `cv2.VideoWriter` at original resolution and FPS with H.264 encoding for browser playback. An Excel report with three sheets is generated automatically.
+5. **Output** — The annotated video is written via `cv2.VideoWriter` at original resolution and FPS with H.264 encoding for browser playback. An Excel report with three sheets is generated automatically.
 
 ### Engineering Decisions
 
@@ -107,7 +104,7 @@ Drone footage has inherent camera shake and gradual panning, which causes boundi
 - **DeepSORT**: Adds a ReID appearance model on top of Kalman filtering. Better ID consistency, but lacks camera motion compensation — every frame shift is interpreted as object movement, causing track drift.
 - **BoT-SORT** (chosen): Combines ReID appearance features + Kalman filter + camera motion compensation. The motion compensation corrects for drone shake between frames, keeping track IDs stable even when the whole frame shifts. Ranked higher than DeepSORT on MOTChallenge benchmarks and is built into Ultralytics with no extra dependencies.
 
-#### Why persistence-based counting instead of line-crossing only
+#### Why persistence-based counting with spatial dedup
 
 Traditional traffic counters use a virtual line and count vehicles when they cross it. This fails in drone footage because:
 
@@ -115,19 +112,15 @@ Traditional traffic counters use a virtual line and count vehicles when they cro
 - Vehicles that stop (traffic jams, red lights) sit on one side and never cross
 - The line position (50%, 85%, etc.) is arbitrary and video-dependent
 
-Instead, every unique track ID that persists for at least 2 processed frames is counted. This catches vehicles regardless of their position or direction of movement. The 2-frame threshold filters out single-frame detection flickers (false positives that appear and vanish in one frame).
-
-#### Why final scan checks multiple frames
-
-Scanning only the last frame is unreliable because a vehicle might be occluded or misdected in that exact frame. The final scan spreads detection across the last ~1 second (up to 10 frames), clusters matching detections by spatial overlap (IoU > 0.2), and only counts vehicles seen in 2+ different frames. This filters single-frame noise while catching every real vehicle.
+Instead, every unique track ID that persists for at least 2 processed frames is counted. Additionally, before counting, the bounding box is checked against all already-counted vehicles using IoU (intersection over union). If the overlap exceeds 30%, the track is treated as a duplicate — the same physical vehicle that the tracker reassigned a new ID to — and is skipped. This two-layer approach (persistence + spatial dedup) ensures each vehicle is counted exactly once.
 
 #### Why class voting
 
 YOLO may classify the same vehicle differently across frames (e.g., "truck" in frame 10, "bus" in frame 12). The pipeline tallies every class observation per track ID and uses the most frequent one as the final classification. This turns frame-level noise into a correct aggregate label.
 
-#### Why FRAME_SKIP = 3
+#### Why FRAME_SKIP = 2
 
-At 25 fps, processing every 3rd frame yields ~8.3 inference passes per second. This is sufficient temporal resolution because vehicles in drone footage typically remain in frame for 2+ seconds (50+ frames), giving the tracker at least 16 processed frames to establish and maintain a track. Processing every frame would roughly triple the processing time with negligible accuracy gain.
+At 25 fps, processing every 2nd frame yields ~12.5 inference passes per second. Vehicles in drone footage typically remain in frame for several seconds, giving the tracker enough processed frames to establish and maintain a stable track. Processing every frame would double the processing time with negligible accuracy gain since consecutive frames contain nearly identical information.
 
 #### Why INFERENCE_WIDTH = 640
 
@@ -135,7 +128,7 @@ At 25 fps, processing every 3rd frame yields ~8.3 inference passes per second. T
 
 #### Why YOLOv8n (nano)
 
-The nano model runs ~3x faster than YOLOv8s with acceptable accuracy for vehicle counting. Since the pipeline uses class voting (multiple frames) and the final scan as safety nets, occasional misdetections are corrected in aggregate. If higher single-frame accuracy is needed, swapping to `yolov8s.pt` is a one-line change.
+The nano model runs ~3x faster than YOLOv8s with acceptable accuracy for vehicle counting. Since the pipeline uses class voting (multiple frames) and spatial dedup as safety nets, occasional misdetections are corrected in aggregate. If higher single-frame accuracy is needed, swapping to `yolov8s.pt` is a one-line change in `config.py`.
 
 #### Why H.264 (`avc1`) codec
 
@@ -145,20 +138,25 @@ Browsers cannot play OpenCV's default `mp4v` codec. H.264 is universally support
 
 Instead of configuring CORS headers on FastAPI and dealing with preflight requests, the Next.js dev server proxies `/api/*` and `/ws/*` requests to the backend. This means the browser only talks to `localhost:3000` — no cross-origin issues, no preflight overhead. The `proxyClientMaxBodySize: "500mb"` config overrides Next.js's default 10 MB proxy limit to support large video uploads.
 
-#### Why in-memory job store
+#### Why in-memory job store with recovery
 
-The backend is designed as a single-instance service. Job state is stored in a thread-safe Python dict rather than a database, avoiding external dependencies (Redis, PostgreSQL). This keeps the setup simple — `pip install` and run. Job state is ephemeral and resets on restart, which is acceptable for an analysis tool (not a production SaaS).
+The backend is designed as a single-instance service. Job state is stored in a thread-safe Python dict rather than a database, avoiding external dependencies (Redis, PostgreSQL). On server startup, any jobs stuck in "processing" (from a previous crash) are automatically marked as errors. This keeps the setup simple while handling the most common failure mode gracefully.
+
+#### Why centralized config
+
+All tunable constants (model name, tracker, frame skip, inference width, dedup thresholds, colors, upload limits) live in a single `config.py` file. This means adjusting the pipeline never requires reading multiple source files. Swapping the tracker, model, or any threshold is a one-line change.
 
 ### Edge Cases Handled
 
 - **Vehicle stops mid-scene** — Persistence counting catches stationary vehicles regardless of position.
-- **Vehicle visible only at video end** — The multi-frame final scan detects uncounted vehicles in the last ~1 second.
+- **Tracker reassigns a new ID** — Spatial dedup (IoU check) prevents the same vehicle from being counted twice.
 - **Vehicle passes behind occlusion** — BoT-SORT's ReID appearance model re-links tracks after brief disappearances.
 - **Camera shake / panning** — BoT-SORT's motion compensation corrects for frame-level shifts.
 - **Mislabeled vehicle class** — Class voting across all frames corrects single-frame classification errors.
 - **Invalid file upload** — Extension, content-type, and MP4 magic-byte validation reject non-video files.
 - **WebSocket disconnect** — Frontend auto-reconnects up to 3 times with a 3-second delay.
 - **File too large** — Frontend rejects files over 500 MB before upload.
+- **Server crash during processing** — On restart, stuck jobs are automatically detected and marked as failed.
 
 ## API Reference
 

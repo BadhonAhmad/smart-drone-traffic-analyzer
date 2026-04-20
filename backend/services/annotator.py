@@ -5,11 +5,6 @@ from __future__ import annotations
 import cv2
 
 
-def draw_counting_line(frame: cv2.typing.MatLike, y: int, width: int) -> None:
-    """Draw the virtual counting line in red across the full frame width."""
-    cv2.line(frame, (0, y), (width, y), (0, 0, 255), 2)
-
-
 def draw_box(
     frame: cv2.typing.MatLike,
     tid: int,

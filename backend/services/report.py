@@ -3,14 +3,14 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from pathlib import Path
 from typing import Any
 
 from openpyxl import Workbook
 from openpyxl.styles import Alignment, Font, PatternFill
 from openpyxl.utils import get_column_letter
 
-REPORT_DIR = Path(__file__).resolve().parent.parent / "tmp" / "reports"
+from config import REPORT_DIR
+
 REPORT_DIR.mkdir(parents=True, exist_ok=True)
 
 # Style presets

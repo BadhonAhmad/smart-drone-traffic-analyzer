@@ -27,9 +27,6 @@ class TrackerState:
     class_map: dict[int, str] = field(default_factory=dict)
     class_votes: dict[int, dict[str, int]] = field(default_factory=dict)
     frame_count: dict[int, int] = field(default_factory=dict)
-    prev_center_y: dict[int, float] = field(default_factory=dict)
-    # Last known bounding box per counted vehicle (inference-space coords).
-    # Updated every frame so we can catch re-IDs of moving vehicles.
     counted_boxes: dict[int, tuple[float, float, float, float]] = field(default_factory=dict)
     detections_log: list[dict] = field(default_factory=list)
 
@@ -49,26 +46,19 @@ class TrackerState:
                 return True
         return False
 
-    def should_count(self, tid: int, cy: float, line_y: float,
+    def should_count(self, tid: int,
                      x1: float, y1: float, x2: float, y2: float) -> bool:
         """Decide whether to count this vehicle this frame.
 
-        Triggers (only if *tid* is not yet counted and doesn't overlap
-        an already-counted vehicle):
-        1. Line crossing — center-Y crossed the line since last frame.
-        2. Persistence — tracked for MIN_TRACK_FRAMES processed frames.
+        A vehicle is counted when:
+        1. It has persisted for MIN_TRACK_FRAMES processed frames.
+        2. Its bounding box doesn't overlap with an already-counted vehicle.
         """
         if tid in self.seen_ids:
             return False
 
-        # Spatial dedup: same physical vehicle with a new track ID
         if self._overlaps_counted(x1, y1, x2, y2):
             return False
-
-        if tid in self.prev_center_y:
-            prev = self.prev_center_y[tid]
-            if (prev < line_y <= cy) or (prev > line_y >= cy):
-                return True
 
         if self.frame_count.get(tid, 0) >= MIN_TRACK_FRAMES:
             return True
@@ -108,9 +98,6 @@ class TrackerState:
 
     def bump_frame(self, tid: int) -> None:
         self.frame_count[tid] = self.frame_count.get(tid, 0) + 1
-
-    def save_center(self, tid: int, cy: float) -> None:
-        self.prev_center_y[tid] = cy
 
     @property
     def count(self) -> int:
