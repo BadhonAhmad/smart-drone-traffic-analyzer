@@ -81,13 +81,6 @@ npm run dev
 
 Open http://localhost:3000
 
-Or use the launcher script:
-
-```bash
-chmod +x run.sh
-./run.sh
-```
-
 ## How It Works
 
 ### CV Pipeline
