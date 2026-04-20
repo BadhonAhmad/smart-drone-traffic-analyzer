@@ -102,7 +102,7 @@ Open **http://localhost:3000** and drop an `.mp4` drone video to start.
 
 1. **Upload** — The user drops an `.mp4` file. The backend validates the extension and MP4 magic bytes (`ftyp` at offset 4), saves the file, creates a job, and kicks off a background task.
 
-2. **Detection** — Every 2nd frame is resized to 640 px width and passed through YOLOv8n with BoT-SORT tracking (`classes=[2,3,5,7]` filtering to car, motorcycle, bus, truck).
+2. **Detection** — Every 3rd frame is resized to 640 px width and passed through YOLOv8n with BoT-SORT tracking (`classes=[2,3,5,7]` filtering to car, motorcycle, bus, truck).
 
 3. **Counting** — A vehicle is counted once its track ID has persisted for at least 2 processed frames. Before counting, the bounding box is checked against all already-counted vehicles using IoU overlap — if it matches an existing vehicle, it is skipped. This prevents the same physical vehicle from being counted multiple times when the tracker assigns it a new ID.
 
@@ -134,9 +134,9 @@ Instead, every unique track ID that persists for at least 2 processed frames is 
 
 YOLO may classify the same vehicle differently across frames (e.g., "truck" in frame 10, "bus" in frame 12). The pipeline tallies every class observation per track ID and uses the most frequent one as the final classification. This turns frame-level noise into a correct aggregate label.
 
-#### Why FRAME_SKIP = 2
+#### Why FRAME_SKIP = 3
 
-At 25 fps, processing every 2nd frame yields ~12.5 inference passes per second. Vehicles in drone footage typically remain in frame for several seconds, giving the tracker enough processed frames to establish and maintain a stable track. Processing every frame would double the processing time with negligible accuracy gain.
+At 25 fps, processing every 3rd frame yields ~8.3 inference passes per second. Vehicles in drone footage typically remain in frame for several seconds, giving the tracker enough processed frames to establish and maintain a stable track. Processing every frame would triple the processing time with negligible accuracy gain.
 
 #### Why INFERENCE_WIDTH = 640
 
@@ -234,7 +234,7 @@ All settings are centralized in `backend/config.py`:
 | `MODEL_NAME` | `yolov8n.pt` | YOLO model weights (swap to `yolov8s.pt` for accuracy) |
 | `TRACKER` | `botsort.yaml` | Tracker config (`botsort.yaml`, `bytetrack.yaml`, or `deepsort`) |
 | `INFERENCE_WIDTH` | `640` | Frame resize width before inference |
-| `FRAME_SKIP` | `2` | Process every Nth frame |
+| `FRAME_SKIP` | `3` | Process every Nth frame |
 | `MIN_TRACK_FRAMES` | `2` | Frames a track must persist before being counted |
 | `DEDUP_IOU` | `0.3` | IoU threshold for spatial deduplication |
 | `VIDEO_CODEC` | `avc1` | Output video codec (H.264) |

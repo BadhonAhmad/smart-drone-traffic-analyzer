@@ -20,7 +20,7 @@ REPORT_DIR = _BASE / "tmp" / "reports"
 MODEL_NAME = "yolov8n.pt"           # YOLOv8 nano weights (swap to yolov8s for accuracy)
 TRACKER = "botsort.yaml"             # BoT-SORT (ReID + motion compensation)
 INFERENCE_WIDTH = 640               # Resize frames to this width before inference
-FRAME_SKIP = 2                      # Process every Nth frame
+FRAME_SKIP = 3                      # Process every Nth frame
 COCO_CLASSES = {2: "car", 3: "motorcycle", 5: "bus", 7: "truck"}
 
 # ---------------------------------------------------------------------------
