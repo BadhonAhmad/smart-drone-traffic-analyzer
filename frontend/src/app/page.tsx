@@ -41,14 +41,16 @@ export default function Home() {
 
   return (
     <main className="flex items-center justify-center min-h-screen px-4">
-      {screen === "upload" && <UploadZone onFile={handleFile} />}
-      {screen === "processing" && jobId && (
-        <ProgressScreen jobId={jobId} onDone={handleDone} onError={handleError} />
-      )}
-      {screen === "done" && jobId && (
-        <ResultsDashboard jobId={jobId} onReset={reset} />
-      )}
-      {screen === "error" && <ErrorCard message={errorMsg} onReset={reset} />}
+      <div className="w-full max-w-4xl py-12">
+        {screen === "upload" && <UploadZone onFile={handleFile} />}
+        {screen === "processing" && jobId && (
+          <ProgressScreen jobId={jobId} onDone={handleDone} onError={handleError} onCancel={reset} />
+        )}
+        {screen === "done" && jobId && (
+          <ResultsDashboard jobId={jobId} onReset={reset} />
+        )}
+        {screen === "error" && <ErrorCard message={errorMsg} onReset={reset} />}
+      </div>
     </main>
   );
 }
