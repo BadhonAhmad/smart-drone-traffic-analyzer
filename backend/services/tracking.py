@@ -1,10 +1,22 @@
-"""Vehicle tracking state — class mapping and counting logic."""
+"""Vehicle tracking state — class mapping, counting logic, and spatial dedup."""
 
 from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from config import MIN_TRACK_FRAMES
+from config import DEDUP_IOU, MIN_TRACK_FRAMES
+
+
+def _iou(
+    ax1: float, ay1: float, ax2: float, ay2: float,
+    bx1: float, by1: float, bx2: float, by2: float,
+) -> float:
+    """Intersection-over-union between two axis-aligned boxes."""
+    ix1, iy1 = max(ax1, bx1), max(ay1, by1)
+    ix2, iy2 = min(ax2, bx2), min(ay2, by2)
+    inter = max(0, ix2 - ix1) * max(0, iy2 - iy1)
+    union = (ax2 - ax1) * (ay2 - ay1) + (bx2 - bx1) * (by2 - by1) - inter
+    return inter / union if union > 0 else 0.0
 
 
 @dataclass
@@ -16,6 +28,9 @@ class TrackerState:
     class_votes: dict[int, dict[str, int]] = field(default_factory=dict)
     frame_count: dict[int, int] = field(default_factory=dict)
     prev_center_y: dict[int, float] = field(default_factory=dict)
+    # Last known bounding box per counted vehicle (inference-space coords).
+    # Updated every frame so we can catch re-IDs of moving vehicles.
+    counted_boxes: dict[int, tuple[float, float, float, float]] = field(default_factory=dict)
     detections_log: list[dict] = field(default_factory=list)
 
     def update_class(self, tid: int, cls_name: str) -> str:
@@ -27,14 +42,27 @@ class TrackerState:
         self.class_map[tid] = best
         return best
 
-    def should_count(self, tid: int, cy: float, line_y: float) -> bool:
+    def _overlaps_counted(self, x1: float, y1: float, x2: float, y2: float) -> bool:
+        """Check if this box overlaps with any already-counted vehicle."""
+        for bx1, by1, bx2, by2 in self.counted_boxes.values():
+            if _iou(x1, y1, x2, y2, bx1, by1, bx2, by2) > DEDUP_IOU:
+                return True
+        return False
+
+    def should_count(self, tid: int, cy: float, line_y: float,
+                     x1: float, y1: float, x2: float, y2: float) -> bool:
         """Decide whether to count this vehicle this frame.
 
-        Two triggers (only if *tid* is not yet counted):
+        Triggers (only if *tid* is not yet counted and doesn't overlap
+        an already-counted vehicle):
         1. Line crossing — center-Y crossed the line since last frame.
         2. Persistence — tracked for MIN_TRACK_FRAMES processed frames.
         """
         if tid in self.seen_ids:
+            return False
+
+        # Spatial dedup: same physical vehicle with a new track ID
+        if self._overlaps_counted(x1, y1, x2, y2):
             return False
 
         if tid in self.prev_center_y:
@@ -72,6 +100,11 @@ class TrackerState:
         }
         self.detections_log.append(entry)
         return entry
+
+    def update_position(self, tid: int, x1: float, y1: float, x2: float, y2: float) -> None:
+        """Update last known position for a counted vehicle (inference-space)."""
+        if tid in self.seen_ids:
+            self.counted_boxes[tid] = (x1, y1, x2, y2)
 
     def bump_frame(self, tid: int) -> None:
         self.frame_count[tid] = self.frame_count.get(tid, 0) + 1

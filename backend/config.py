@@ -18,7 +18,7 @@ REPORT_DIR = _BASE / "tmp" / "reports"
 # Detection & tracking
 # ---------------------------------------------------------------------------
 MODEL_NAME = "yolov8n.pt"           # YOLOv8 nano weights (swap to yolov8s for accuracy)
-TRACKER = "botsort.yaml"            # BoT-SORT (ReID + motion compensation)
+TRACKER = "botsort.yaml"             # BoT-SORT (ReID + motion compensation)
 INFERENCE_WIDTH = 640               # Resize frames to this width before inference
 FRAME_SKIP = 3                      # Process every Nth frame
 COCO_CLASSES = {2: "car", 3: "motorcycle", 5: "bus", 7: "truck"}
@@ -28,6 +28,7 @@ COCO_CLASSES = {2: "car", 3: "motorcycle", 5: "bus", 7: "truck"}
 # ---------------------------------------------------------------------------
 LINE_POSITION = 0.85                # Visual counting line at 85 % frame height
 MIN_TRACK_FRAMES = 2                # Frames a track must persist before counted
+DEDUP_IOU = 0.3                     # IoU threshold to prevent double-counting same vehicle
 
 # ---------------------------------------------------------------------------
 # Final scan (end-of-video safety net)

@@ -4,4 +4,5 @@ python-multipart
 opencv-python
 openpyxl
 ultralytics
+deep-sort-realtime
 websockets
